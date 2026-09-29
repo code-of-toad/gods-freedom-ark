@@ -1,0 +1,168 @@
+# ============================================================
+# Python
+# ============================================================
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+
+# ============================================================
+# Python environments
+# ============================================================
+
+.venv/
+venv/
+env/
+ENV/
+
+
+# ============================================================
+# Secrets and environment variables
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+credentials/
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Google Cloud credentials
+*service-account*.json
+application_default_credentials.json
+
+
+# ============================================================
+# Data
+# ============================================================
+
+# Large/local/generated datasets should never be committed.
+**/data/raw/
+**/data/staging/
+**/data/intermediate/
+**/data/processed/
+**/data/curated/
+**/data/quarantine/
+**/data/checkpoints/
+**/data/benchmark/
+**/data/benchmarks/
+**/data/scratch/
+**/data/temp/
+**/data/tmp/
+
+# Explicit sample datasets are allowed.
+!**/data/sample/
+!**/data/sample/**
+
+
+# ============================================================
+# Spark
+# ============================================================
+
+spark-warehouse/
+metastore_db/
+derby.log
+
+*.crc
+
+# Spark local output
+**/_SUCCESS
+**/_temporary/
+**/.sparkStaging/
+
+
+# ============================================================
+# Airflow
+# ============================================================
+
+airflow.db
+airflow.cfg
+airflow-webserver.pid
+standalone_admin_password.txt
+
+logs/
+
+
+# ============================================================
+# Terraform
+# ============================================================
+
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Keep lock file committed when Terraform is introduced.
+# .terraform.lock.hcl is intentionally NOT ignored.
+
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+
+# ============================================================
+# IDE / editor
+# ============================================================
+
+.vscode/
+.idea/
+
+*.swp
+*.swo
+
+
+# ============================================================
+# Operating system
+# ============================================================
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+# ============================================================
+# Logs and temporary files
+# ============================================================
+
+*.log
+*.tmp
+*.temp
+*.bak
+
+
+# ============================================================
+# Build / distribution
+# ============================================================
+
+build/
+dist/
+
+
+# ============================================================
+# Jupyter
+# ============================================================
+
+.ipynb_checkpoints/
+
+
+# ============================================================
+# Local project-specific overrides
+# ============================================================
+
+*.local.yaml
+*.local.yml
+*.local.json
