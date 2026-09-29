@@ -1063,7 +1063,8 @@ Where applicable, validate:
 
 Examples:
 
-```text
+```
+text
 quantity > 0
 unit_price >= 0
 discount_amount >= 0
