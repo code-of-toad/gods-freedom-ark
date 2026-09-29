@@ -329,7 +329,10 @@ clients/
             ├── README.md
             ├── ARCHITECTURE.md
             ├── config/
-            │   └── p001.yaml
+            │   ├── base.yaml
+            │   ├── dev.yaml
+            │   ├── test.yaml
+            │   └── prod.yaml
             ├── src/
             │   └── p001_retail_sales/
             │       ├── schemas.py
@@ -405,20 +408,150 @@ Contains warehouse-style analytical queries used to verify and demonstrate the r
 
 Tests correctness at the level of individual rules and end-to-end processing behaviour.
 
+## Environment Model
+
+P001 explicitly separates:
+
+```text
+dev
+test
+prod
+```
+
+The same pipeline code must run in all three environments.
+
+Environment differences should be expressed through configuration, data locations, credentials, and execution context rather than through separate implementations or environment-specific business logic.
+
+### Development (`dev`)
+
+Purpose:
+
+- local iteration;
+- exploratory runs;
+- debugging;
+- small synthetic or representative datasets; and
+- manual execution.
+
+Development data and outputs must remain isolated from trusted production data.
+
+### Test (`test`)
+
+Purpose:
+
+- deterministic automated tests;
+- integration testing;
+- controlled fixture datasets;
+- replay and idempotency verification; and
+- reconciliation/failure-path verification.
+
+Test runs must never publish into production destinations.
+
+### Production (`prod`)
+
+Purpose:
+
+- canonical client inputs;
+- trusted curated outputs;
+- production quarantine outputs;
+- controlled publication; and
+- analytical warehouse loading.
+
+Production should use stricter operational safeguards and should not depend on development-only fixtures or shortcuts.
+
 ## Configuration
 
-`config/p001.yaml` should contain environment-specific or run-specific values only when implementation requires them.
+Configuration is split into:
+
+```text
+config/
+├── base.yaml
+├── dev.yaml
+├── test.yaml
+└── prod.yaml
+```
+
+### `base.yaml`
+
+Contains settings shared by all environments.
 
 Examples may include:
 
 ```text
-run date
-input locations
-output locations
-warehouse dataset
+client_id
+engagement_id
+pipeline mode
+shared naming conventions
+logging format
 ```
 
-Business rules that define the meaning of the data should not be hidden in configuration merely to make them appear generic.
+### Environment Overrides
+
+`dev.yaml`, `test.yaml`, and `prod.yaml` contain only values that differ by environment.
+
+Examples may include:
+
+```text
+environment name
+input locations
+output locations
+BigQuery dataset
+logging level
+test-data settings
+```
+
+At runtime, configuration is resolved conceptually as:
+
+```text
+base.yaml
+    +
+<environment>.yaml
+    =
+effective configuration
+```
+
+When the same key is defined in both files, the environment-specific value overrides the base value.
+
+### Configuration Principles
+
+Configuration should describe deployment or execution differences.
+
+Business rules that define the meaning of the data should not be hidden in YAML merely to make them appear configurable.
+
+For example, these belong in contracts and implementation logic rather than environment configuration:
+
+```text
+sales business key
+valid record semantics
+version precedence
+revenue formulas
+referential-integrity rules
+```
+
+Secrets and credentials must never be stored in these YAML files.
+
+## Environment Promotion Principle
+
+P001 follows:
+
+```text
+same code
++ tested configuration
++ isolated data
+= environment-specific execution
+```
+
+Changes should be proven in `dev`, validated through `test`, and only then used in `prod`.
+
+This project does not initially require:
+
+- separate code branches per environment;
+- separate pipeline implementations;
+- Terraform environment stacks;
+- Composer environments;
+- Kubernetes deployment layers; or
+- a full CI/CD promotion system.
+
+Those mechanisms may be added only if a later requirement justifies them.
 
 ## Testing Priorities
 
@@ -478,17 +611,18 @@ Implementation should proceed in this order:
 
 ```text
 1. Create minimal package / test scaffold
-2. Implement explicit schemas
-3. Create deterministic seed data
-4. Implement validation and quarantine
-5. Implement transformations
-6. Implement incremental/version resolution
-7. Implement reconciliation
-8. Wire the end-to-end pipeline
-9. Add analytical SQL
-10. Run locally with Parquet
-11. Validate Spark execution behaviour
-12. Add GCP execution / BigQuery only after local correctness
+2. Create base/dev/test/prod configuration scaffold
+3. Implement explicit schemas
+4. Create deterministic seed data
+5. Implement validation and quarantine
+6. Implement transformations
+7. Implement incremental/version resolution
+8. Implement reconciliation
+9. Wire the end-to-end pipeline
+10. Add analytical SQL
+11. Run locally with Parquet
+12. Validate Spark execution behaviour
+13. Add GCP execution / BigQuery only after local correctness
 ```
 
 ## Definition of Architecture Complete
@@ -506,7 +640,9 @@ Architecture definition is complete when the following are clear:
 - reconciliation expectations;
 - storage strategy;
 - BigQuery boundary;
-- repository structure; and
+- repository structure;
+- dev/test/prod environment boundaries;
+- configuration inheritance; and
 - implementation sequence.
 
 No production implementation code is required at this stage.
