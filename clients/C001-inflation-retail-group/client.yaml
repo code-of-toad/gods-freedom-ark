@@ -1,0 +1,12 @@
+client_id: C001
+name: Inflation Retail Group
+industry: retail
+status: simulated
+
+cloud:
+  primary: gcp
+
+data_estate:
+  canonical_raw: true
+  standardized_layer: true
+  shared_reference_data: true
