@@ -1,0 +1,2 @@
+-- Analytical SQL for P001 Retail Sales.
+-- Queries will be added after the trusted analytical model is defined.

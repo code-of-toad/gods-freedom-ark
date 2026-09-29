@@ -1,0 +1,15 @@
+# Dev-specific configuration.
+
+
+# Define environmental identity.
+environment: dev
+
+# Development logging should expose detailed diagnostic information.
+logging:
+  level: DEBUG
+
+# Keep development data ISOLATED from test & production data.
+paths:
+  input: ./data/dev/input
+  output: ./data/dev/output
+  quarantine: ./data/dev/quarantine

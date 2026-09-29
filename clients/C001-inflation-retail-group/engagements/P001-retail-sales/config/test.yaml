@@ -1,0 +1,19 @@
+# Test-specific configuration.
+
+
+# Define environmental identity.
+environment: test
+
+# Automated tests should indicate meaningful failures w/o excessive debug noise.
+logging:
+  level: WARNING
+
+# Keep test data ISOLATED from development & production data.
+paths:
+  input: ./data/test/input
+  output: ./data/test/output
+  quarantine: ./data/test/quarantine
+
+# Ensure test fixtures are reproducible across runs.
+testing:
+  deterministic_fixtures: true

@@ -1,0 +1,19 @@
+# Production-specific configuration.
+
+
+# Define environmental identity.
+environment: prod
+
+# Production logging should be informative w/o debug-level verbosity.
+logging:
+  level: INFO
+
+# Infrastructure values are currently unresolved.
+paths:
+  input: null
+  output: null
+  quarantine: null
+
+# Production will eventually load analytical data into BigQuery.
+warehouse:
+  dataset: null

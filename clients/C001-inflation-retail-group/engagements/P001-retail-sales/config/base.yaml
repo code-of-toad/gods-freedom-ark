@@ -1,0 +1,18 @@
+# Base config is inherited by all of {dev, test, prod}.
+# I.e., any value that does NOT change across these envs belong here.
+
+
+# Identify the engagement.
+client_id: C001
+engagement_id: P001
+
+# Give the environment family a stable name.
+environment_family: p001-retail-sales
+
+# Specify pipeline details.
+pipeline:
+  mode: incremental
+
+# Specify shared logging behaviour.
+logging:
+  format: json
