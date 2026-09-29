@@ -1,12 +1,19 @@
-client_id: C001
-name: Inflation Retail Group
-industry: retail
-status: simulated
+client_id: C001               # Internal identifier.
+name: Inflation Retail Group  # Human-readable client name.
+industry: retail              # Business domain.
+status: simulated             # NOT a real production client.
 
 cloud:
-  primary: gcp
+  primary: gcp  # Client's primary cloud platform.
 
+# Architectural capabilities that this client has enabled.
 data_estate:
+  # Client has an authoritative raw-data layer where source data is preserved.
   canonical_raw: true
+  # There is a layer that cleans/normalizes raw source-specific data into
+  #   consistent schemas.
   standardized_layer: true
+  # Common reference datasets (e.g., product categories, store information,
+  #   currencies, calendars, etc.) are centrally maintained and reusable across
+  #   pipelines.
   shared_reference_data: true
