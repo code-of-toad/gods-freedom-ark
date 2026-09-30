@@ -10,6 +10,6 @@ logging:
 
 # Keep development data ISOLATED from test & production data.
 paths:
-  input: ./data/dev/input
+  input: ./data/test/input
   output: ./data/dev/output
   quarantine: ./data/dev/quarantine
