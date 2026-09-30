@@ -1,0 +1,6 @@
+store_id,store_name,city,province,active
+S001,Mississauga Central,Mississauga,ON,true
+S002,Toronto Downtown,Toronto,ON,true
+S003,Vancouver West,Vancouver,BC,true
+S004,Calgary North,Calgary,AB,true
+S005,Halifax Harbour,Halifax,NS,false

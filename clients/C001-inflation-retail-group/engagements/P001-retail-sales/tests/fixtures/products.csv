@@ -1,0 +1,11 @@
+product_id,product_name,category,active
+P001,Coffee,Grocery,true
+P002,Tea,Grocery,true
+P003,Rice,Grocery,true
+P004,Bread,Grocery,true
+P005,Milk,Grocery,true
+P006,Headphones,Electronics,true
+P007,Keyboard,Electronics,true
+P008,Mouse,Electronics,true
+P009,Lamp,Home,true
+P010,Kettle,Home,false
