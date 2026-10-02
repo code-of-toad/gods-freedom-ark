@@ -1,0 +1,51 @@
+# This whole file can be summarized as follows:
+#     [build-system]
+#     -> How should this project be built?
+#
+#     [project]
+#     -> What is this project?
+#
+#     [tools.setuptools]
+#     -> Where does its Python source live?
+#
+#     [tools.setuptools.packages.find]
+#     -> Where should setuptools search for packages?
+#
+# Then, `pip install -e .` reads this file and effectively tells
+# your active Python environment the following:
+#     "Install `p001-retail-sales`, whose importable package `p001_retail_sales`
+#     lives under `src/`, and keep the installation inked to my working source
+#     code."
+
+# Conceptually:
+#     pip install .
+#     -> reads pyproject.toml 
+#     -> sees setuptools is the build system
+#     -> asks setuptools to build/install the project
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "p001-retail-sales"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+dependencies = [
+    "pyspark",
+    "PyYAML",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+# This tells setuptools: "src/ = Python package root."
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+# This tells setuptools: "Search inside src/ and find the Python packages
+#                        that should be installed."
+[tool.setuptools.packages.find]
+where = ["src"]
