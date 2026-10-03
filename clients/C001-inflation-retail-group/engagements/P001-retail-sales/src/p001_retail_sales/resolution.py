@@ -75,10 +75,12 @@ def resolve_sales_versions(df: DataFrame) -> tuple[DataFrame, DataFrame]:
         .filter(F.col('_version_count') > 1)
         .withColumn(
             'rejection_reasons',
-            F.concat(
+            F.array_union(
                 F.col('rejection_reasons'),
-                F.array(F.lit('AMBIGUOUS_LATEST_VERSION'))
-            )
+                F.array(
+                    F.lit('AMBIGUOUS_LATEST_VERSION')
+                ),
+            ),
         )
         .drop('_version_count')
     )
