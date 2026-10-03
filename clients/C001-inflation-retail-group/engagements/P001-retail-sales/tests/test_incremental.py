@@ -553,3 +553,184 @@ def test_incremental_ambiguity_does_not_remove_unrelated_current_records(
     assert len(unaffected_rows) == 1
     assert unaffected_rows[0]['quantity'] == 2
     assert unaffected_rows[0]['unit_price'] == Decimal('8.00')
+
+
+def test_incremental_preserves_unresolved_ambiguity_across_runs(spark):
+    current_df = _get_accepted_sales_from_rows(
+        spark,
+        [
+            (
+                'O3000',
+                '1',
+                '2026-10-03',
+                'S001',
+                'P001',
+                '1',
+                '12.00',
+                '7.00',
+                '0.00',
+                'COMPLETED',
+                '2026-10-03T10:00:00',
+            ),
+        ],
+    )
+
+    conflicting_df = _get_accepted_sales_from_rows(
+        spark,
+        [
+            (
+                'O3000',
+                '1',
+                '2026-10-03',
+                'S001',
+                'P001',
+                '1',
+                '15.00',
+                '7.00',
+                '0.00',
+                'COMPLETED',
+                '2026-10-03T10:00:00',
+            ),
+        ],
+    )
+
+    # Run 1 discovers the conflict.
+    next_state_df, ambiguous_df = merge_sales_current_state(
+        current_df,
+        conflicting_df,
+    )
+
+    assert (
+        _filter_business_key(
+            next_state_df,
+            'O3000',
+            1,
+        ).count()
+        == 0
+    )
+
+    assert (
+        _filter_business_key(
+            ambiguous_df,
+            'O3000',
+            1,
+        ).count()
+        == 2
+    )
+
+    # Run 2 replays only one side of the conflict.
+    replay_df = conflicting_df
+
+    next_state_df, next_ambiguous_df = (
+        merge_sales_current_state(
+            next_state_df,
+            replay_df,
+            ambiguous_state_df=ambiguous_df,
+        )
+    )
+
+    # The conflict must NOT be forgotten.
+    assert (
+        _filter_business_key(
+            next_state_df,
+            'O3000',
+            1,
+        ).count()
+        == 0
+    )
+
+    rows = _filter_business_key(
+        next_ambiguous_df,
+        'O3000',
+        1,
+    ).collect()
+
+    assert len(rows) == 2
+
+    for row in rows:
+        assert row['rejection_reasons'].count(
+            'AMBIGUOUS_LATEST_VERSION'
+        ) == 1
+
+
+def test_incremental_newer_version_resolves_prior_ambiguity(spark):
+    ambiguous_state_df = _get_accepted_sales_from_rows(
+        spark,
+        [
+            (
+                'O3001',
+                '1',
+                '2026-10-03',
+                'S001',
+                'P001',
+                '1',
+                '12.00',
+                '7.00',
+                '0.00',
+                'COMPLETED',
+                '2026-10-03T10:00:00',
+            ),
+            (
+                'O3001',
+                '1',
+                '2026-10-03',
+                'S001',
+                'P001',
+                '1',
+                '15.00',
+                '7.00',
+                '0.00',
+                'COMPLETED',
+                '2026-10-03T10:00:00',
+            ),
+        ],
+    )
+
+    _, ambiguous_state_df = resolve_sales_versions(
+        ambiguous_state_df
+    )
+
+    corrective_df = _get_accepted_sales_from_rows(
+        spark,
+        [
+            (
+                'O3001',
+                '1',
+                '2026-10-03',
+                'S001',
+                'P001',
+                '1',
+                '15.00',
+                '7.00',
+                '0.00',
+                'COMPLETED',
+                '2026-10-03T11:00:00',
+            ),
+        ],
+    )
+
+    next_state_df, next_ambiguous_df = (
+        merge_sales_current_state(
+            None,
+            corrective_df,
+            ambiguous_state_df=ambiguous_state_df,
+        )
+    )
+
+    rows = _filter_business_key(
+        next_state_df,
+        'O3001',
+        1,
+    ).collect()
+
+    assert len(rows) == 1
+    assert rows[0]['unit_price'] == Decimal('15.00')
+
+    assert (
+        _filter_business_key(
+            next_ambiguous_df,
+            'O3001',
+            1,
+        ).count()
+        == 0
+    )
