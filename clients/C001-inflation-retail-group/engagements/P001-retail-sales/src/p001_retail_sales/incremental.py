@@ -1,7 +1,6 @@
 """
 Incremental current-state processing for P001 sales.
 """
-
 from pyspark.sql import DataFrame
 
 from p001_retail_sales.resolution import resolve_sales_versions
@@ -33,7 +32,6 @@ def merge_sales_current_state(
             Unresolved latest-version conflicts that must remain
             outside trusted analytical state.
     """
-
     combined_df = incoming_df
 
     if current_df is not None:
