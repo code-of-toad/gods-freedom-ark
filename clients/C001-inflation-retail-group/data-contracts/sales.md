@@ -221,6 +221,8 @@ The downstream system must surface this condition for investigation rather than 
 
 The source contract provides inputs from which downstream analytical measures may be derived.
 
+For `COMPLETED` and `RETURNED` records, the analytical measures are:
+
 ### Gross sales
 
 ```text
@@ -238,6 +240,18 @@ net_sales = gross_sales - discount_amount
 ```text
 gross_margin = net_sales - (quantity * unit_cost)
 ```
+
+For `RETURNED` records, `quantity` is negative, so the same formulas naturally reverse the sale and its associated margin contribution.
+
+For `CANCELLED` records, the analytical measures must contribute zero:
+
+```text
+gross_sales = 0.00
+net_sales = 0.00
+gross_margin = 0.00
+```
+
+Cancelled rows may remain part of the trusted current-state dataset as valid business-state records, but they must not contribute revenue, net sales, or gross margin to downstream analytical aggregations.
 
 These are derived analytical measures and do not need to exist as canonical source fields.
 
