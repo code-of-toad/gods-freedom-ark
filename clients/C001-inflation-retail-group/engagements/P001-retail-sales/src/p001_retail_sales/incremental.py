@@ -35,17 +35,11 @@ def merge_sales_current_state(
     combined_df = incoming_df
 
     if current_df is not None:
-        combined_df = current_df.unionByName(
-            combined_df
-        )
+        combined_df = current_df.unionByName(combined_df)
 
     if ambiguous_state_df is not None:
-        combined_df = ambiguous_state_df.unionByName(
-            combined_df
-        )
+        combined_df = ambiguous_state_df.unionByName(combined_df)
 
-    next_state_df, ambiguous_df = resolve_sales_versions(
-        combined_df
-    )
+    next_state_df, ambiguous_df = resolve_sales_versions(combined_df)
 
     return next_state_df, ambiguous_df
