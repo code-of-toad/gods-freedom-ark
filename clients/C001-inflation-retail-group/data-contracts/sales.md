@@ -312,15 +312,17 @@ Those decisions belong to the consuming engagement or platform implementation.
 
 ## P001 Usage
 
-`P001-retail-sales` will consume this contract to design:
+`P001-retail-sales` uses this contract to implement:
 
-- ingestion;
-- validation;
-- deduplication;
-- correction handling;
+- ingestion and canonical standardization;
+- sales validation;
+- duplicate/redelivery handling;
+- correction and stale-version handling;
+- persistent ambiguous-version handling;
 - late-arriving-data handling;
-- incremental processing;
-- reconciliation; and
-- trusted analytical sales outputs.
+- incremental and idempotent processing;
+- reconciliation;
+- derived sales measures; and
+- trusted local analytical sales state.
 
-The next required contracts are `products.md` and `stores.md`.
+With `sales.md`, `products.md`, and `stores.md` defined, the minimum source contracts required for the current P001 pipeline are in place.
