@@ -67,6 +67,14 @@ application_default_credentials.json
 !**/data/sample/
 !**/data/sample/**
 
+# ============================================================
+# P001 environment-owned generated data
+# ============================================================
+
+**/data/dev/
+**/data/prod/
+**/data/test/output/
+**/data/test/quarantine/
 
 # ============================================================
 # Spark
