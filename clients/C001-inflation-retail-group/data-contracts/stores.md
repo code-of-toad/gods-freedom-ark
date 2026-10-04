@@ -183,12 +183,13 @@ Those decisions belong to the consuming engagement or implementation layer.
 
 ## P001 Usage
 
-`P001-retail-sales` will use this contract to:
+`P001-retail-sales` currently uses this contract to:
 
-- validate `sales.store_id`;
-- enrich trusted sales records with store attributes;
-- aggregate sales by store;
-- support geographic reporting by city and province; and
-- distinguish valid historical stores from unknown store references.
+- validate canonical store reference rows;
+- enforce `sales.store_id` referential integrity;
+- quarantine invalid store-reference rows; and
+- distinguish valid inactive historical stores from unknown store references.
 
-With `sales.md`, `products.md`, and `stores.md` defined, the minimum source contracts required for `P001-retail-sales` are now in place.
+Future analytical modeling will also use trusted store attributes for store and geographic enrichment and aggregation.
+
+With `sales.md`, `products.md`, and `stores.md` defined, the minimum source contracts required for `P001-retail-sales` are in place.
