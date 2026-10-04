@@ -2,29 +2,31 @@
 
 **Client:** Inflation Retail Group (`C001`)  
 **Engagement:** `P001-retail-sales`  
-**Status:** Architecture definition  
-**Implementation:** Not started
+**Status:** Active implementation  
+**Current stage:** Local incremental pipeline, reconciliation, and safe Parquet publication implemented
 
 ## Architecture Goal
 
-Implement a small, production-minded batch data pipeline that converts canonical retail sales deliveries into trusted analytical outputs.
+Implement a small, production-minded batch data pipeline that converts canonical retail sales deliveries into trusted analytical state while making replay, corrections, ambiguity, quarantine, reconciliation, and failed publication behavior explicit.
 
-The design should prioritize the engineering skills most relevant to this engagement:
+The architecture prioritizes:
 
-- PySpark transformations;
-- SQL;
-- schema enforcement;
+- explicit schemas;
+- deterministic standardization;
 - data-quality validation;
 - referential integrity;
-- deduplication and correction handling;
+- duplicate and correction handling;
 - incremental and idempotent processing;
 - late-arriving data;
+- persistent unresolved ambiguity;
+- reproducible business metrics;
 - reconciliation;
-- partition-aware storage;
-- BigQuery-ready analytical modeling; and
-- clear operational failure behaviour.
+- safe publication;
+- local Parquet persistence;
+- testability; and
+- a clean future mapping to GCP.
 
-The architecture should remain simple enough to understand end to end.
+The design intentionally remains understandable end to end.
 
 ## System Boundary
 
@@ -39,149 +41,358 @@ clients/C001-inflation-retail-group/data-contracts/
 └── stores.md
 ```
 
-The engagement owns:
+P001 owns:
 
-- processing logic;
+- ingestion behavior;
+- canonical standardization;
 - engagement-specific validation;
 - rejected-record handling;
-- incremental state;
-- curated analytical outputs;
-- tests;
-- reconciliation logic; and
+- duplicate/version resolution;
+- incremental processing state;
+- unresolved ambiguity state;
+- analytical transformations;
+- reconciliation;
+- local publication state;
+- tests; and
 - engagement documentation.
 
-## Logical Data Flow
+## Current Logical Data Flow
 
 ```mermaid
 flowchart TD
-    A["Canonical raw sales deliveries"] --> B["Read with explicit schema"]
-    P["Shared product reference data"] --> C["Validate and standardize"]
-    S["Shared store reference data"] --> C
-    B --> C
+    P["Raw product reference"] --> PS["Standardize + validate products"]
+    S["Raw store reference"] --> SS["Standardize + validate stores"]
 
-    C -->|Invalid| Q["Quarantine / rejected records"]
-    C -->|Valid| D["Resolve duplicates and versions"]
+    PS -->|Invalid non-duplicate rows| PQ["Product quarantine"]
+    SS -->|Invalid non-duplicate rows| SQ["Store quarantine"]
 
-    D --> E["Apply incremental changes"]
-    T["Previously trusted sales state"] --> E
+    PS -->|Duplicate product_id| RF["Fail run"]
+    SS -->|Duplicate store_id| RF
 
-    E --> F["Reconcile"]
-    F --> G["Publish curated sales"]
-    G --> H["BigQuery analytical tables / SQL"]
+    A["Raw sales delivery"] --> B["Read with explicit raw schema"]
+    B --> C["Standardize while preserving raw values"]
+
+    PS --> VR["Trusted reference rows"]
+    SS --> VR
+
+    C --> D["Validate sales + referential integrity"]
+    VR --> D
+
+    D -->|Invalid| VQ["Sales validation quarantine"]
+    D -->|Accepted| I["Accepted incoming sales"]
+
+    T["Previous resolved state"] --> M["Merge incremental resolution state"]
+    U["Previous ambiguous state"] --> M
+    I --> M
+
+    M --> R["Resolve duplicates + latest versions"]
+    R -->|Unique latest version| RS["Next resolved state"]
+    R -->|Conflicting latest version| AS["Next ambiguous state"]
+
+    RS --> X["Add analytical measures"]
+    X --> Y["Candidate curated state"]
+    Y --> Z["Reconciliation"]
+    AS --> Z
+
+    Z -->|Pass| ST["Write staged Parquet snapshot"]
+    Z -->|Fail| FAIL["Fail run; keep previous CURRENT"]
+
+    ST --> PR["Promote immutable run snapshot"]
+    PR --> CP["Atomically update CURRENT pointer"]
 ```
 
 ## Processing Model
 
-P001 uses **daily incremental batch processing**.
+P001 uses **incremental batch processing**.
 
-Each run processes one source delivery and updates the trusted analytical state.
-
-A run must be deterministic with respect to:
+A run is deterministic with respect to:
 
 ```text
-source input
-+ prior trusted state
-+ reference data
+incoming source delivery
++ previous resolved state
++ previous unresolved ambiguity
++ current reference data
 + business rules
 ```
 
-Reprocessing the same successful delivery must not double-count sales or otherwise change the final trusted result solely because the batch was replayed.
+The previous resolved and ambiguous states are loaded from the last successfully published run.
 
-## Data Layers
+Reprocessing a harmless delivery must not double-count sales or alter the logical trusted result solely because the batch was replayed.
 
-### 1. Canonical Raw
+## Reference-Data Processing
 
-Owned by the client data estate.
+Products and stores are standardized and validated before sales referential-integrity checks.
 
-Contains source deliveries as received, with no engagement-specific transformation.
+Two reference-data failure classes are treated differently.
 
-P001 treats canonical raw data as immutable input.
+### Invalid non-duplicate reference row
 
-Example logical location:
+Examples include missing descriptive values, invalid province, or unparseable `active`.
+
+The reference row is quarantined and is not allowed to satisfy sales referential integrity.
+
+A sales row referencing that invalid reference therefore receives the appropriate unknown-reference rejection reason.
+
+### Duplicate reference identity
+
+Duplicate canonical `product_id` or `store_id` values make identity ambiguous.
+
+The pipeline fails the run rather than choosing one reference row arbitrarily.
+
+## Standardization
+
+Raw CSV values are read with explicit raw schemas and then standardized.
+
+Standardization performs operations such as:
+
+- trimming;
+- safe integer parsing;
+- safe date/timestamp parsing;
+- decimal parsing;
+- status normalization; and
+- boolean normalization.
+
+Source values are retained in `raw_*` columns so parse failures remain diagnosable.
+
+Standardization does not decide whether a row is trustworthy.
+
+## Validation and Quarantine
+
+Validation answers:
+
+> Is this individual row valid enough to participate in trusted processing?
+
+Sales validation includes:
+
+- required identifiers;
+- positive `line_id`;
+- parseable business date;
+- quantity/status semantics;
+- nonnegative monetary inputs;
+- permitted order status;
+- valid `updated_at`;
+- completed-sale discount bounds; and
+- product/store referential integrity.
+
+The result is split into:
 
 ```text
-canonical-raw/
-└── sales/
-    └── delivery_date=YYYY-MM-DD/
+accepted incoming rows
+validation quarantine
 ```
 
-This is a logical convention only. Exact cloud paths will be chosen during implementation.
+Validation quarantine is historical/error evidence for the current run. It is not part of trusted current state.
 
-### 2. Standardized / Validated
+## Incremental Resolution State
 
-Contains records after:
+Version resolution answers a different question:
 
-- explicit type parsing;
-- required-field validation;
-- business-rule validation;
-- product referential-integrity checks;
-- store referential-integrity checks; and
-- normalization required by the data contract.
+> Among individually trustworthy versions of the same business key, which latest state is authoritative?
 
-This layer is not yet the final analytical state because duplicate and competing record versions may still need resolution.
-
-### 3. Rejected / Quarantine
-
-Contains records that fail validation.
-
-Each rejected record should preserve:
-
-- original identifying fields;
-- source metadata;
-- one or more rejection reason codes; and
-- enough context to investigate the failure.
-
-Rejected rows must never silently disappear.
-
-Example reasons may include:
-
-```text
-MISSING_ORDER_ID
-INVALID_LINE_ID
-UNKNOWN_PRODUCT_ID
-UNKNOWN_STORE_ID
-INVALID_ORDER_STATUS
-INVALID_QUANTITY
-INVALID_MONETARY_VALUE
-AMBIGUOUS_VERSION
-```
-
-The final reason-code vocabulary will be defined alongside implementation and tests.
-
-### 4. Curated
-
-Contains the current trusted analytical representation of sales.
-
-At minimum, curated sales must support:
-
-- one current logical state per `(order_id, line_id)`;
-- deterministic correction handling;
-- reproducible revenue, units, order, and margin metrics;
-- enrichment with product and store attributes; and
-- downstream SQL analysis.
-
-## Incremental Record Resolution
-
-The business key is:
+The sales business key is:
 
 ```text
 (order_id, line_id)
 ```
 
-Version precedence is based on:
+Version precedence is:
 
 ```text
 updated_at
 ```
 
-For each business key:
+The resolution input is:
 
-1. exact redeliveries must not create additional logical records;
-2. a newer valid `updated_at` supersedes an older version;
-3. an older delivered version must not overwrite newer trusted state;
-4. conflicting rows with the same business key and same `updated_at` are ambiguous and must be quarantined rather than resolved arbitrarily.
+```text
+previous resolved state
++ previous ambiguous state
++ accepted incoming rows
+```
 
-The implementation must produce the same final state regardless of harmless source replay.
+This is necessary because ambiguity is unfinished state, not merely historical quarantine.
+
+## Duplicate and Version Resolution
+
+Resolution follows this order:
+
+1. collapse canonically identical redeliveries;
+2. determine the maximum `updated_at` for each business key;
+3. keep only rows at that latest timestamp;
+4. after exact deduplication:
+   - one latest canonical row becomes resolved;
+   - multiple conflicting latest canonical rows become ambiguous.
+
+The implementation must never choose a winner nondeterministically.
+
+### Newer correction
+
+A newer valid `updated_at` supersedes older state.
+
+### Stale delivery
+
+An older incoming version cannot replace newer known state.
+
+### Exact replay
+
+A canonically identical replay collapses and does not create another logical record.
+
+### Same-timestamp conflict
+
+Conflicting rows with the same business key and same latest `updated_at` are excluded from trusted state and receive:
+
+```text
+AMBIGUOUS_LATEST_VERSION
+```
+
+### Persisted ambiguity
+
+Ambiguous latest rows are carried into the next run.
+
+This prevents a later replay of only one side of the conflict from accidentally turning the key back into trusted state.
+
+A genuinely newer unique version supersedes the older conflict and can return the key to trusted state.
+
+## Resolved State Versus Curated State
+
+P001 intentionally separates:
+
+```text
+resolved_state
+```
+
+from:
+
+```text
+curated_sales
+```
+
+`resolved_state` is the canonical current business state used as incremental input to the next run.
+
+`curated_sales` is produced from `resolved_state` by adding analytical measures and passing reconciliation.
+
+The pipeline does not feed the transformed curated dataset back into version resolution.
+
+## Business Transformations
+
+For `COMPLETED` and `RETURNED` rows:
+
+```text
+gross_sales  = quantity * unit_price
+net_sales    = gross_sales - discount_amount
+gross_margin = net_sales - (quantity * unit_cost)
+```
+
+For `CANCELLED` rows:
+
+```text
+gross_sales  = 0.00
+net_sales    = 0.00
+gross_margin = 0.00
+```
+
+The implemented metric type is:
+
+```text
+decimal(24,2)
+```
+
+The current transformation layer is deliberately narrow. Final warehouse enrichment and dimensional modeling remain future work.
+
+## Reconciliation
+
+Reconciliation verifies candidate output; it does not mutate business state.
+
+The implemented checks include:
+
+- validated incoming row count equals accepted plus validation-quarantined rows;
+- no duplicate curated `(order_id, line_id)` keys;
+- no row with rejection reasons appears in the candidate;
+- no ambiguous key appears in the candidate;
+- candidate and resolved-state business-key sets match;
+- required metric columns exist; and
+- analytical measures independently recompute to the expected values.
+
+A reconciliation failure prevents publication.
+
+## Publication Model
+
+Local publication uses:
+
+```text
+process
+    ↓
+reconcile
+    ↓
+write complete staged snapshot
+    ↓
+promote staged directories to immutable run directories
+    ↓
+atomically replace CURRENT pointer
+```
+
+The authoritative switch is the `CURRENT` pointer.
+
+A new run does not become authoritative until all trusted and quarantine datasets have been written and promoted successfully.
+
+If processing or writing fails before `CURRENT` changes, the previous successful run remains authoritative.
+
+## Local Storage Layout
+
+Development publication uses:
+
+```text
+data/dev/
+├── output/
+│   ├── CURRENT
+│   ├── _staging/
+│   └── runs/
+│       └── <run_id>/
+│           ├── resolved_state/
+│           └── curated_sales/
+│
+└── quarantine/
+    ├── _staging/
+    └── runs/
+        └── <run_id>/
+            ├── ambiguous_state/
+            ├── sales_validation/
+            ├── products/
+            └── stores/
+```
+
+### `resolved_state`
+
+Persistent canonical state required for the next incremental run.
+
+### `curated_sales`
+
+Transformed, reconciled analytical state for the published run.
+
+### `ambiguous_state`
+
+Persistent unresolved latest-version conflicts required by future resolution.
+
+### Validation/reference quarantine
+
+Run-specific rejected source/reference records retained for investigation.
+
+## Batch-Job Coordination
+
+`job.py` performs the persistent lifecycle:
+
+```text
+load CURRENT run state
+    ↓
+run in-memory pipeline
+    ↓
+reconcile candidate
+    ↓
+publish new snapshot
+    ↓
+update CURRENT
+```
+
+Business rules remain outside `job.py`.
 
 ## Late-Arriving Data
 
@@ -189,224 +400,108 @@ The implementation must produce the same final state regardless of harmless sour
 
 A record may legitimately arrive after its `sale_date`.
 
-Processing must therefore separate:
+The pipeline separates business date from delivery/run identity, so a valid late-arriving row is not rejected merely because it arrived later.
+
+Version precedence remains based on `updated_at`, not file-arrival order.
+
+## Current Repository Structure
 
 ```text
-business date
-```
-
-from:
-
-```text
-delivery / ingestion date
-```
-
-A valid late-arriving record must update the appropriate analytical business period without being rejected merely because it arrived late.
-
-## Publication Model
-
-P001 should use a simple **stage → validate → publish** workflow.
-
-```text
-process batch
-    ↓
-write staged candidate output
-    ↓
-run reconciliation checks
-    ↓
-publish trusted state only if checks pass
-```
-
-A failed run must not replace the last known-good curated state.
-
-This project does not attempt to implement a distributed transaction system.
-
-The goal is to demonstrate safe publication semantics appropriate to a batch data-engineering exercise.
-
-## Reconciliation
-
-Before publication, the pipeline should verify invariants such as:
-
-- no duplicate curated business keys;
-- no unresolved invalid foreign keys;
-- expected accepted/rejected counts reconcile to processed input;
-- no ambiguous record versions enter curated data;
-- derived monetary values are internally consistent; and
-- rerunning the same delivery preserves the same trusted result.
-
-Exact reconciliation checks will be implemented as testable rules.
-
-## Storage Strategy
-
-### Development
-
-Use local Parquet for fast iteration and testing.
-
-Parquet is preferred because it provides:
-
-- columnar storage;
-- explicit typed data;
-- compatibility with Spark;
-- predicate and column pruning opportunities; and
-- a useful bridge to distributed analytical systems.
-
-### GCP Execution
-
-The cloud-equivalent architecture is:
-
-```text
-Cloud Storage
-    ↓
-PySpark batch processing
-    ↓
-Cloud Storage curated / rejected outputs
-    ↓
-BigQuery analytical tables
-```
-
-A managed Spark service such as Dataproc may execute the PySpark workload.
-
-The architecture does not require cloud deployment before the core pipeline is correct locally.
-
-## BigQuery Boundary
-
-BigQuery is the analytical warehouse target.
-
-P001 should eventually expose a compact analytical model rather than copying raw source structures directly into reporting tables.
-
-The minimum useful model is expected to include:
-
-```text
-fact_sales
-dim_product
-dim_store
-dim_date
-```
-
-The precise warehouse schema will be defined after the processing pipeline's trusted grain and transformation rules are finalized.
-
-Do not introduce surrogate keys or slowly changing dimensions unless a concrete requirement justifies them.
-
-## Partitioning
-
-Partitioning should follow actual access and processing patterns rather than being added automatically.
-
-Likely candidates:
-
-```text
-raw / standardized input:
-    delivery_date
-
-curated / warehouse sales:
-    sale_date
-```
-
-The implementation should demonstrate:
-
-- partition pruning;
-- avoiding unnecessary shuffles;
-- deliberate use of `repartition()` versus `coalesce()`; and
-- awareness of small-file problems.
-
-Partition choices must be validated with evidence rather than treated as universal rules.
-
-## Planned Repository Structure
-
-Only create directories when implementation begins.
-
-The intended structure is:
-
-```text
-clients/
-└── C001-inflation-retail-group/
-    ├── data-contracts/
-    │   ├── README.md
-    │   ├── sales.md
-    │   ├── products.md
-    │   └── stores.md
-    └── engagements/
-        └── P001-retail-sales/
-            ├── README.md
-            ├── ARCHITECTURE.md
-            ├── config/
-            │   ├── base.yaml
-            │   ├── dev.yaml
-            │   ├── test.yaml
-            │   └── prod.yaml
-            ├── src/
-            │   └── p001_retail_sales/
-            │       ├── schemas.py
-            │       ├── validation.py
-            │       ├── transformations.py
-            │       ├── incremental.py
-            │       ├── reconciliation.py
-            │       └── pipeline.py
-            ├── sql/
-            │   └── analytics.sql
-            └── tests/
-                ├── test_validation.py
-                ├── test_transformations.py
-                ├── test_incremental.py
-                └── test_reconciliation.py
+P001-retail-sales/
+├── README.md
+├── ARCHITECTURE.md
+├── pyproject.toml
+├── config/
+│   ├── base.yaml
+│   ├── dev.yaml
+│   ├── test.yaml
+│   └── prod.yaml
+├── data/
+│   └── test/
+│       └── input/
+├── src/
+│   └── p001_retail_sales/
+│       ├── __init__.py
+│       ├── schemas.py
+│       ├── ingestion.py
+│       ├── standardization.py
+│       ├── validation.py
+│       ├── resolution.py
+│       ├── incremental.py
+│       ├── transformations.py
+│       ├── reconciliation.py
+│       ├── pipeline.py
+│       ├── publication.py
+│       └── job.py
+├── sql/
+│   └── analytics.sql
+└── tests/
+    ├── conftest.py
+    ├── test_ingestion.py
+    ├── test_standardization.py
+    ├── test_validation.py
+    ├── test_resolution.py
+    ├── test_transformations.py
+    ├── test_incremental.py
+    ├── test_reconciliation.py
+    ├── test_pipeline.py
+    ├── test_publication.py
+    └── test_job.py
 ```
 
 ## Module Responsibilities
 
 ### `schemas.py`
 
-Defines explicit implementation schemas corresponding to the canonical contracts.
+Defines explicit raw and canonical implementation schemas corresponding to client contracts.
 
-It must not redefine business meaning that belongs in the client contracts.
+### `ingestion.py`
+
+Reads raw CSV datasets without applying business validation.
+
+### `standardization.py`
+
+Produces canonical representations while preserving original `raw_*` values for traceability.
 
 ### `validation.py`
 
-Applies:
+Applies row rules, reference-data rules, referential integrity, rejection reasons, and accepted/quarantine splitting.
 
-- required-field rules;
-- domain rules;
-- range rules;
-- referential-integrity checks; and
-- rejection reason generation.
+### `resolution.py`
 
-### `transformations.py`
-
-Contains deterministic business transformations and analytical derivations.
-
-Examples:
-
-```text
-gross_sales
-net_sales
-gross_margin
-```
+Owns exact canonical redelivery collapse and latest-version classification.
 
 ### `incremental.py`
 
-Owns:
+Combines previous resolved state, previous ambiguous state, and accepted incoming rows before calling resolution.
 
-- duplicate handling;
-- version resolution;
-- correction handling;
-- stale-record handling; and
-- idempotent incremental updates.
+### `transformations.py`
+
+Adds deterministic analytical measures.
 
 ### `reconciliation.py`
 
-Verifies candidate outputs before publication.
+Verifies candidate publication invariants and raises on unsafe output.
 
 ### `pipeline.py`
 
-Coordinates the engagement workflow.
+Coordinates the in-memory workflow and returns a `SalesPipelineResult`.
 
-It should orchestrate reusable functions rather than contain all transformation logic itself.
+### `publication.py`
+
+Persists local Parquet snapshots, loads current state, and owns the safe `CURRENT` publication pointer.
+
+### `job.py`
+
+Coordinates one complete persistent batch job:
+
+```text
+load → process → reconcile → publish
+```
 
 ### `sql/analytics.sql`
 
-Contains warehouse-style analytical queries used to verify and demonstrate the resulting data model.
-
-### `tests/`
-
-Tests correctness at the level of individual rules and end-to-end processing behaviour.
+Currently a placeholder. Warehouse-style analytical SQL will be added after the trusted analytical model is finalized.
 
 ## Environment Model
 
@@ -418,49 +513,7 @@ test
 prod
 ```
 
-The same pipeline code must run in all three environments.
-
-Environment differences should be expressed through configuration, data locations, credentials, and execution context rather than through separate implementations or environment-specific business logic.
-
-### Development (`dev`)
-
-Purpose:
-
-- local iteration;
-- exploratory runs;
-- debugging;
-- small synthetic or representative datasets; and
-- manual execution.
-
-Development data and outputs must remain isolated from trusted production data.
-
-### Test (`test`)
-
-Purpose:
-
-- deterministic automated tests;
-- integration testing;
-- controlled fixture datasets;
-- replay and idempotency verification; and
-- reconciliation/failure-path verification.
-
-Test runs must never publish into production destinations.
-
-### Production (`prod`)
-
-Purpose:
-
-- canonical client inputs;
-- trusted curated outputs;
-- production quarantine outputs;
-- controlled publication; and
-- analytical warehouse loading.
-
-Production should use stricter operational safeguards and should not depend on development-only fixtures or shortcuts.
-
-## Configuration
-
-Configuration is split into:
+Configuration files exist under:
 
 ```text
 config/
@@ -470,36 +523,7 @@ config/
 └── prod.yaml
 ```
 
-### `base.yaml`
-
-Contains settings shared by all environments.
-
-Examples may include:
-
-```text
-client_id
-engagement_id
-pipeline mode
-shared naming conventions
-logging format
-```
-
-### Environment Overrides
-
-`dev.yaml`, `test.yaml`, and `prod.yaml` contain only values that differ by environment.
-
-Examples may include:
-
-```text
-environment name
-input locations
-output locations
-BigQuery dataset
-logging level
-test-data settings
-```
-
-At runtime, configuration is resolved conceptually as:
+The intended resolution model remains:
 
 ```text
 base.yaml
@@ -509,140 +533,208 @@ base.yaml
 effective configuration
 ```
 
-When the same key is defined in both files, the environment-specific value overrides the base value.
+However, the current runtime does **not** yet implement automatic YAML loading/merging. The local job currently receives paths and `run_id` explicitly.
 
-### Configuration Principles
+Production storage and BigQuery values remain intentionally unresolved.
 
-Configuration should describe deployment or execution differences.
+## Testing Model
 
-Business rules that define the meaning of the data should not be hidden in YAML merely to make them appear configurable.
+P001 has automated coverage for:
 
-For example, these belong in contracts and implementation logic rather than environment configuration:
+- explicit ingestion;
+- standardization and parse behavior;
+- row-level and reference validation;
+- quarantine behavior;
+- referential integrity;
+- exact redelivery;
+- newer corrections;
+- stale versions;
+- same-key/same-timestamp ambiguity;
+- ambiguity persistence;
+- ambiguity resolution by a newer version;
+- derived metrics;
+- reconciliation;
+- pipeline integration;
+- safe Parquet publication;
+- state reload; and
+- persistent multi-run job behavior.
 
-```text
-sales business key
-valid record semantics
-version precedence
-revenue formulas
-referential-integrity rules
-```
+The test suite is intentionally layered so algorithmic failures can be isolated before end-to-end behavior is tested.
 
-Secrets and credentials must never be stored in these YAML files.
+## Operational Failure Behavior
 
-## Environment Promotion Principle
+### Run-blocking conditions
 
-P001 follows:
-
-```text
-same code
-+ tested configuration
-+ isolated data
-= environment-specific execution
-```
-
-Changes should be proven in `dev`, validated through `test`, and only then used in `prod`.
-
-This project does not initially require:
-
-- separate code branches per environment;
-- separate pipeline implementations;
-- Terraform environment stacks;
-- Composer environments;
-- Kubernetes deployment layers; or
-- a full CI/CD promotion system.
-
-Those mechanisms may be added only if a later requirement justifies them.
-
-## Testing Priorities
-
-The implementation must test at least:
-
-1. valid sales acceptance;
-2. each important rejection rule;
-3. product referential integrity;
-4. store referential integrity;
-5. exact duplicate replay;
-6. newer correction superseding an older version;
-7. stale delivery not replacing newer state;
-8. same-key same-timestamp ambiguity;
-9. late-arriving records;
-10. idempotent reruns;
-11. reconciliation failures blocking publication; and
-12. derived revenue and margin calculations.
-
-## Operational Failure Behaviour
-
-The pipeline must fail clearly when trusted output cannot be determined.
-
-Examples:
+Examples include:
 
 ```text
-contract-breaking schema change
 duplicate canonical product IDs
 duplicate canonical store IDs
-ambiguous sales versions
 failed reconciliation
-unreadable source delivery
-write failure before publication
+unreadable input
+failed Parquet write
+corrupt/missing CURRENT state
 ```
 
-Failure should preserve the last known-good published state.
+These must not replace the last known-good published run.
+
+### Row-level quarantine conditions
+
+Invalid individual source/reference rows are retained in quarantine and do not silently enter trusted state.
+
+### Ambiguous sales versions
+
+Ambiguous latest sales versions do **not** automatically fail the entire run.
+
+Instead:
+
+```text
+ambiguous key
+    → excluded from trusted state
+    → persisted in ambiguous_state
+    → reconsidered on future runs
+```
+
+This is a deliberate correction to the earlier architecture assumption that every ambiguous sales version should fail the whole batch.
+
+## Local Development Storage
+
+Parquet is used locally because it provides:
+
+- columnar typed storage;
+- Spark compatibility;
+- predicate and column pruning opportunities; and
+- a useful bridge to object-storage/warehouse workflows.
+
+Generated local output, quarantine, staging, benchmark, scratch, and temporary data should remain outside Git.
+
+## GCP Target Boundary
+
+The local architecture is designed to map later to:
+
+```text
+Cloud Storage canonical input
+        ↓
+PySpark / Dataproc
+        ↓
+Cloud Storage trusted + quarantine state
+        ↓
+BigQuery analytical model
+```
+
+The exact GCP publication mechanism does not have to imitate the local filesystem pointer implementation literally. The invariant to preserve is:
+
+> A partially failed run must not replace the last known-good published state.
+
+Cloud implementation should use storage/warehouse mechanisms appropriate to GCS and BigQuery.
+
+## BigQuery and Analytical Modeling
+
+BigQuery remains the intended analytical warehouse target.
+
+The expected minimum model remains:
+
+```text
+fact_sales
+dim_product
+dim_store
+dim_date
+```
+
+This model is **not yet implemented**.
+
+Reference-data enrichment, final curated schema selection, dimensional-model design, and analytical SQL remain upcoming work.
+
+Do not introduce surrogate keys or slowly changing dimensions without a concrete requirement.
+
+## Partitioning and Performance
+
+Partitioning has not yet been finalized.
+
+Likely future candidates include:
+
+```text
+source / standardized:
+    delivery date
+
+curated / warehouse sales:
+    sale_date
+```
+
+The performance phase should provide evidence for:
+
+- partition pruning;
+- shuffle behavior;
+- `repartition()` versus `coalesce()`;
+- join strategy;
+- skew;
+- small-file behavior; and
+- realistic batch-size performance.
+
+Partition decisions should be measured rather than assumed.
 
 ## Explicit Non-Goals
 
-P001 will not initially include:
+P001 does not currently include:
 
 - streaming;
 - Kafka or Pub/Sub;
-- Airflow / Composer orchestration;
+- Airflow / Composer;
 - Terraform;
 - Kubernetes;
-- generic metadata frameworks;
-- generalized multi-client pipeline engines;
-- machine learning;
-- inventory processing; or
-- speculative abstractions for future engagements.
+- a generic metadata framework;
+- a generalized multi-client engine;
+- machine learning; or
+- inventory processing.
 
-These may be introduced later only when they solve a real requirement.
+These should be introduced only when a real requirement justifies them.
 
-## Implementation Sequence
+## Implementation Progress
 
-Implementation should proceed in this order:
+Completed locally:
 
 ```text
-1. Create minimal package / test scaffold
-2. Create base/dev/test/prod configuration scaffold
-3. Implement explicit schemas
-4. Create deterministic seed data
-5. Implement validation and quarantine
-6. Implement transformations
-7. Implement incremental/version resolution
-8. Implement reconciliation
-9. Wire the end-to-end pipeline
-10. Add analytical SQL
-11. Run locally with Parquet
-12. Validate Spark execution behaviour
-13. Add GCP execution / BigQuery only after local correctness
+1. Package/test scaffold
+2. dev/test/prod configuration scaffold
+3. Explicit schemas
+4. Deterministic seed fixtures
+5. Ingestion
+6. Standardization
+7. Validation and quarantine
+8. Duplicate/version resolution
+9. Persistent ambiguity handling
+10. Business metrics
+11. Incremental/idempotent state handling
+12. Reconciliation
+13. End-to-end in-memory pipeline
+14. Safe local Parquet publication
+15. Persistent batch-job coordination
 ```
 
-## Definition of Architecture Complete
+Next:
 
-Architecture definition is complete when the following are clear:
+```text
+16. Exercise the job against real data/dev paths and inspect outputs
+17. Finalize curated analytical shape / reference enrichment
+18. Add analytical SQL
+19. Validate Spark execution and performance behavior
+20. Add realistic benchmark data
+21. Map proven persistence/execution design to GCP
+22. Add BigQuery analytical publication/model
+```
 
-- source contracts;
-- system boundary;
-- trusted record grain;
-- validation path;
-- rejected-record path;
-- duplicate and correction semantics;
-- incremental processing model;
-- publication model;
-- reconciliation expectations;
-- storage strategy;
-- BigQuery boundary;
-- repository structure;
-- dev/test/prod environment boundaries;
-- configuration inheritance; and
-- implementation sequence.
+## Definition of Current Local Milestone
 
-No production implementation code is required at this stage.
+The local core milestone is satisfied when P001 can:
+
+- validate and quarantine bad data;
+- maintain deterministic current state across deliveries;
+- preserve unresolved ambiguity;
+- survive harmless replay;
+- derive reproducible sales metrics;
+- reconcile a candidate before publication;
+- persist the next state to Parquet;
+- keep immutable run snapshots; and
+- preserve the last known-good published state if a later run fails.
+
+Those behaviors are now represented in the implementation and automated test suite.
