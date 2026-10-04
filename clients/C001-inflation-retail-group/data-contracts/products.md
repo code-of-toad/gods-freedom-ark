@@ -159,12 +159,11 @@ Those decisions belong to the consuming engagement or implementation layer.
 
 ## P001 Usage
 
-`P001-retail-sales` will use this contract to:
+`P001-retail-sales` currently uses this contract to:
 
-- validate `sales.product_id`;
-- enrich trusted sales records with product attributes;
-- aggregate sales by product;
-- aggregate sales by category; and
-- distinguish valid historical products from unknown product references.
+- validate canonical product reference rows;
+- enforce `sales.product_id` referential integrity;
+- quarantine invalid product-reference rows; and
+- distinguish valid inactive historical products from unknown product references.
 
-The next required shared reference contract is `stores.md`.
+Future analytical modeling will also use trusted product attributes for product/category enrichment and aggregation.
