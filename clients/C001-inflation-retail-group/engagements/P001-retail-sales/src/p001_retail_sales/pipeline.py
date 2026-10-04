@@ -5,47 +5,51 @@ from dataclasses import dataclass
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from p001_retail_sales.incremental import merge_sales_current_state
 from p001_retail_sales.ingestion import (
     read_raw_products,
     read_raw_sales,
     read_raw_stores,
-)
-from p001_retail_sales.reconciliation import (
-    assert_sales_reconciliation,
 )
 from p001_retail_sales.standardization import (
     standardize_products,
     standardize_sales,
     standardize_stores,
 )
-from p001_retail_sales.transformations import add_sales_metrics
 from p001_retail_sales.validation import (
     add_products_rejection_reasons,
     add_stores_rejection_reasons,
     split_validated_records,
     validate_sales,
 )
+from p001_retail_sales.transformations import add_sales_metrics
+from p001_retail_sales.incremental import merge_sales_current_state
+from p001_retail_sales.reconciliation import assert_sales_reconciliation
 
 
 @dataclass(frozen=True)
 class SalesPipelineResult:
     """
     Outputs produced by one successful P001 sales pipeline run.
+
+    resolved_state_df:
+        Canonical current state used as input to the next incremental run.
+
+    candidate_df:
+        Reconciled analytical state eligible for publication.
+
+    validation_quarantine_df
+        Incoming sales rows that failed validation.
+
+    ambiguous_state_df
+        Persistent unresolved version conflicts.
+
+    products_quarantine_df, stores_quarantine_df:
+        Invalid reference-data rows retained for investigation.
     """
-    # Canonical current state used as input to the next incremental run.
     resolved_state_df: DataFrame
-
-    # Reconciled analytical state eligible for publication.
     candidate_df: DataFrame
-
-    # Incoming sales rows that failed validation.
     validation_quarantine_df: DataFrame
-
-    # Persistent unresolved version conflicts.
     ambiguous_state_df: DataFrame
-
-    # Invalid reference-data rows retained for investigation.
     products_quarantine_df: DataFrame
     stores_quarantine_df: DataFrame
 
@@ -93,22 +97,17 @@ def _assert_reference_data_is_processable(
         products_df,
         'DUPLICATE_PRODUCT_ID',
     ):
-        failures.append(
-            'DUPLICATE_PRODUCT_ID'
-        )
+        failures.append('DUPLICATE_PRODUCT_ID')
 
     if _contains_rejection_reason(
         stores_df,
         'DUPLICATE_STORE_ID',
     ):
-        failures.append(
-            'DUPLICATE_STORE_ID'
-        )
+        failures.append('DUPLICATE_STORE_ID')
 
     if failures:
         raise ReferenceDataError(
-            'Reference data validation failed: '
-            + ', '.join(failures)
+            'Reference data validation failed: ' + ', '.join(failures)
         )
 
 
@@ -162,26 +161,16 @@ def run_sales_pipeline(
         spark,
         products_path,
     )
-
-    products_validated_df = (
-        add_products_rejection_reasons(
-            standardize_products(
-                raw_products_df
-            )
-        )
+    products_validated_df = add_products_rejection_reasons(
+        standardize_products(raw_products_df)
     )
 
     raw_stores_df = read_raw_stores(
         spark,
         stores_path,
     )
-
-    stores_validated_df = (
-        add_stores_rejection_reasons(
-            standardize_stores(
-                raw_stores_df
-            )
-        )
+    stores_validated_df = add_stores_rejection_reasons(
+        standardize_stores(raw_stores_df)
     )
 
     # Duplicate reference identities make deterministic lookup unsafe.
@@ -191,34 +180,25 @@ def run_sales_pipeline(
     )
 
     products_accepted_df, products_quarantine_df = (
-        split_validated_records(
-            products_validated_df
-        )
+        split_validated_records(products_validated_df)
     )
 
     stores_accepted_df, stores_quarantine_df = (
-        split_validated_records(
-            stores_validated_df
-        )
+        split_validated_records(stores_validated_df)
     )
 
     # =========================================================================
     # SALES INGESTION + STANDARDIZATION
     # =========================================================================
-
     raw_sales_df = read_raw_sales(
         spark,
         sales_path,
     )
-
-    standardized_sales_df = standardize_sales(
-        raw_sales_df
-    )
+    standardized_sales_df = standardize_sales(raw_sales_df)
 
     # =========================================================================
     # SALES VALIDATION
     # =========================================================================
-
     validated_sales_df = validate_sales(
         standardized_sales_df,
         products_accepted_df,
@@ -226,15 +206,12 @@ def run_sales_pipeline(
     )
 
     accepted_sales_df, validation_quarantine_df = (
-        split_validated_records(
-            validated_sales_df
-        )
+        split_validated_records(validated_sales_df)
     )
 
     # =========================================================================
     # INCREMENTAL / VERSION RESOLUTION
     # =========================================================================
-
     resolved_state_df, next_ambiguous_state_df = (
         merge_sales_current_state(
             current_df=current_state_df,
@@ -246,15 +223,11 @@ def run_sales_pipeline(
     # =========================================================================
     # BUSINESS TRANSFORMATIONS
     # =========================================================================
-
-    candidate_df = add_sales_metrics(
-        resolved_state_df
-    )
+    candidate_df = add_sales_metrics(resolved_state_df)
 
     # =========================================================================
     # PRE-PUBLICATION RECONCILIATION
     # =========================================================================
-
     assert_sales_reconciliation(
         validated_incoming_df=validated_sales_df,
         accepted_incoming_df=accepted_sales_df,
