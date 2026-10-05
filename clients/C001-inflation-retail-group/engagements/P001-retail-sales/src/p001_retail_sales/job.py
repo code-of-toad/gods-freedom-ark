@@ -62,11 +62,15 @@ def run_sales_batch_job(
     # -------------------------------------------------------------------------
     # PUBLISH SUCCESSFUL RESULT
     # -------------------------------------------------------------------------
-    publish_sales_run(
-        result=result,
-        output_root=output_root,
-        quarantine_root=quarantine_root,
-        run_id=run_id,
-    )
+    try:
+        publish_sales_run(
+            result=result,
+            output_root=output_root,
+            quarantine_root=quarantine_root,
+            run_id=run_id,
+        )
 
-    return result
+        return result
+
+    finally:
+        result.resolved_state_df.unpersist()

@@ -4,6 +4,7 @@ End-to-end P001 pipeline orchestration.
 from dataclasses import dataclass
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
+from pyspark import StorageLevel
 
 from p001_retail_sales.ingestion import (
     read_raw_products,
@@ -235,6 +236,10 @@ def run_sales_pipeline(
             incoming_df=accepted_sales_df,
             ambiguous_state_df=ambiguous_state_df,
         )
+    )
+
+    resolved_state_df = resolved_state_df.persist(
+        StorageLevel.MEMORY_AND_DISK
     )
 
     # =========================================================================
