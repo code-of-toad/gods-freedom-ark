@@ -6,7 +6,13 @@ from pathlib import Path
 
 from pyspark.sql import SparkSession
 
-from p001_retail_sales.config import load_config, require_path
+from p001_retail_sales.config import (
+    is_uri_location,
+    join_location,
+    load_config,
+    require_location,
+    require_path,
+)
 from p001_retail_sales.job import run_sales_batch_job
 from p001_retail_sales.publication import get_current_run_id
 
@@ -39,7 +45,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         '--run-id',
         required=True,
-        help='Unique identigier for this physical pipeline run.'
+        help='Unique identifier for this physical pipeline run.'
     )
 
     return parser.parse_args(argv)
@@ -65,11 +71,18 @@ def _create_spark(config: dict) -> SparkSession:
     return builder.getOrCreate()
 
 
-def _require_input_file(path: Path) -> None:
+def _require_input_file(location: str) -> None:
     """
-    Fail clearly before Spark starts processing when an expected
-    local input file does not exist.
+    Fail early when an expected LOCAL input file does not exist.
+
+    URI-based inputs are validated later by Spark/the remote
+    storage connector when Spark attempts to read them.
     """
+    if is_uri_location(location):
+        return
+
+    path = Path(location)
+
     if not path.is_file():
         raise FileNotFoundError(f'Input file does not exist: {path}')
 
@@ -80,12 +93,14 @@ def main(argv: list[str] | None = None) -> None:
     """
     args = _parse_args(argv)
     config = load_config(args.environment)
-    input_root = require_path(config, 'input')
+
+    input_root = require_location(config, 'input')
     output_root = require_path(config, 'output')
     quarantine_root = require_path(config, 'quarantine')
-    sales_path = input_root / 'sales' / args.sales_file
-    products_path = input_root / 'products.csv'
-    stores_path = input_root / 'stores.csv'
+
+    sales_path = join_location(input_root, 'sales', args.sales_file)
+    products_path = join_location(input_root, 'products.csv')
+    stores_path = join_location(input_root, 'stores.csv')
 
     _require_input_file(sales_path)
     _require_input_file(products_path)

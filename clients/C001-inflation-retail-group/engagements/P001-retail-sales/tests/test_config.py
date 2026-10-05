@@ -8,8 +8,15 @@ import pytest
 
 from p001_retail_sales.config import (
     ConfigError,
+    is_uri_location,
+    join_location,
     load_config,
+    require_location,
     require_path,
+)
+from p001_retail_sales.__main__ import (
+    _parse_args,
+    _require_input_file,
 )
 
 
@@ -192,9 +199,6 @@ def test_require_path_rejects_null_path():
         )
 
 
-from p001_retail_sales.__main__ import _parse_args
-
-
 def test_cli_parses_dev_batch_arguments():
     args = _parse_args([
         '--env',
@@ -208,3 +212,131 @@ def test_cli_parses_dev_batch_arguments():
     assert args.environment == 'dev'
     assert args.sales_file == 'sales_2026-10-01.csv'
     assert args.run_id == 'run-001'
+
+
+def test_config_preserves_cloud_locations(
+    tmp_path,
+):
+    config_dir = (
+        tmp_path
+        / 'config'
+    )
+
+    config_dir.mkdir()
+
+    _write(
+        config_dir / 'base.yaml',
+        """
+client_id: C001
+""",
+    )
+
+    _write(
+        config_dir / 'prod.yaml',
+        """
+environment: prod
+
+paths:
+  input: gs://example-bucket/C001/P001/input
+  output: gs://example-bucket/C001/P001/output
+  quarantine: gs://example-bucket/C001/P001/quarantine
+""",
+    )
+
+    config = load_config(
+        'prod',
+        config_dir=config_dir,
+    )
+
+    assert require_location(
+        config,
+        'input',
+    ) == 'gs://example-bucket/C001/P001/input'
+
+    assert require_location(
+        config,
+        'output',
+    ) == 'gs://example-bucket/C001/P001/output'
+
+    assert require_location(
+        config,
+        'quarantine',
+    ) == 'gs://example-bucket/C001/P001/quarantine'
+
+
+def test_require_path_rejects_cloud_uri():
+    config = {
+        'paths': {
+            'input': 'gs://example-bucket/input',
+        },
+    }
+
+    with pytest.raises(
+        ConfigError,
+        match='not a local filesystem path',
+    ):
+        require_path(
+            config,
+            'input',
+        )
+
+
+def test_join_location_joins_local_path(
+    tmp_path,
+):
+    root = tmp_path / 'input'
+
+    result = join_location(
+        root,
+        'sales',
+        'sales-day1.csv',
+    )
+
+    assert Path(result) == (
+        root
+        / 'sales'
+        / 'sales-day1.csv'
+    )
+
+
+def test_join_location_joins_cloud_uri():
+    result = join_location(
+        'gs://example-bucket/C001/P001/input',
+        'sales',
+        'sales-day1.csv',
+    )
+
+    assert result == (
+        'gs://example-bucket/'
+        'C001/P001/input/'
+        'sales/sales-day1.csv'
+    )
+
+
+def test_join_location_handles_trailing_slashes():
+    result = join_location(
+        'gs://example-bucket/input/',
+        '/sales/',
+        '/sales-day1.csv',
+    )
+
+    assert result == (
+        'gs://example-bucket/input/'
+        'sales/sales-day1.csv'
+    )
+
+
+def test_is_uri_location_detects_cloud_uri():
+    assert is_uri_location(
+        'gs://example-bucket/input'
+    )
+
+    assert not is_uri_location(
+        './data/dev/input'
+    )
+
+
+def test_cli_input_check_allows_remote_uri():
+    _require_input_file(
+        'gs://example-bucket/input/products.csv'
+    )
