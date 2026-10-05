@@ -54,6 +54,14 @@ if TYPE_CHECKING:
     from p001_retail_sales.pipeline import SalesPipelineResult
 
 
+ANALYTICAL_TABLE_NAMES = {
+    'fact_sales',
+    'dim_product',
+    'dim_store',
+    'dim_date',
+}
+
+
 class PublicationError(RuntimeError):
     """
     Raised when local pipeline state cannot be safely published or loaded.
@@ -87,6 +95,35 @@ def _write_current_pointer(output_root: Path, run_id: str) -> None:
 
     temp_pointer.write_text(f'{run_id}\n', encoding='utf-8')
     os.replace(temp_pointer, curr_pointer)
+
+
+def load_current_analytical_table(
+    spark: SparkSession,
+    output_root: str | Path,
+    table_name: str,
+) -> DataFrame | None:
+    """
+    Load one analytical table from the currently published run.
+    """
+    if table_name not in ANALYTICAL_TABLE_NAMES:
+        raise PublicationError(f'Unknown analytical table: {table_name}')
+
+    output_root = Path(output_root)
+
+    run_id = get_current_run_id(output_root)
+
+    if run_id is None:
+        return None
+
+    table_path = output_root / 'runs' / run_id / 'analytical' / table_name
+
+    if not table_path.exists():
+        raise PublicationError(
+            f'Published analytical table "{table_name}" '
+            f'is missing for run {run_id}.'
+        )
+
+    return spark.read.parquet(str(table_path))
 
 
 def publish_sales_run(
@@ -140,6 +177,30 @@ def publish_sales_run(
         _write_parquet(
             result.candidate_df,
             output_staging_path / 'curated_sales',
+        )
+
+        # ---------------------------------------------------------------------
+        # ANALYTICAL MODEL
+        # ---------------------------------------------------------------------
+        analytical_path = (
+            output_staging_path
+            / 'analytical'
+        )
+        _write_parquet(
+            result.fact_sales_df,
+            analytical_path / 'fact_sales',
+        )
+        _write_parquet(
+            result.dim_product_df,
+            analytical_path / 'dim_product',
+        )
+        _write_parquet(
+            result.dim_store_df,
+            analytical_path / 'dim_store',
+        )
+        _write_parquet(
+            result.dim_date_df,
+            analytical_path / 'dim_date',
         )
 
         # ---------------------------------------------------------------------

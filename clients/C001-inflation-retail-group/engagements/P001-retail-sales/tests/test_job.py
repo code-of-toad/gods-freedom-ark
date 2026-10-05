@@ -10,6 +10,7 @@ from pyspark.sql import functions as F
 from p001_retail_sales.job import run_sales_batch_job
 from p001_retail_sales.publication import (
     get_current_run_id,
+    load_current_analytical_table,
     load_current_curated_sales,
     load_current_sales_state,
 )
@@ -100,6 +101,35 @@ def test_job_first_run_publishes_current_state(
     )
 
     assert curated_df.count() == 3
+
+    fact_sales_df = load_current_analytical_table(
+        spark,
+        output_root,
+        'fact_sales',
+    )
+
+    dim_product_df = load_current_analytical_table(
+        spark,
+        output_root,
+        'dim_product',
+    )
+
+    dim_store_df = load_current_analytical_table(
+        spark,
+        output_root,
+        'dim_store',
+    )
+
+    dim_date_df = load_current_analytical_table(
+        spark,
+        output_root,
+        'dim_date',
+    )
+
+    assert fact_sales_df.count() == 3
+    assert dim_product_df.count() == 10
+    assert dim_store_df.count() == 5
+    assert dim_date_df.count() == 1
 
 
 # =============================================================================

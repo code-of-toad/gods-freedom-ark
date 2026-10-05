@@ -1,10 +1,11 @@
 """
 Tests for P001 local Parquet publication.
 """
-
-from decimal import Decimal
-
 import pytest
+from decimal import Decimal
+from datetime import date
+
+from pyspark.sql import functions as F
 from pyspark.sql.types import (
     ArrayType,
     DecimalType,
@@ -16,7 +17,9 @@ from pyspark.sql.types import (
 
 from p001_retail_sales.pipeline import SalesPipelineResult
 from p001_retail_sales.publication import (
+    PublicationError,
     get_current_run_id,
+    load_current_analytical_table,
     load_current_curated_sales,
     load_current_sales_state,
     publish_sales_run,
@@ -133,9 +136,50 @@ def _result(
 
     empty_df = resolved_df.limit(0)
 
+    # Publication tests do not test modeling logic itself.
+    # These lightweight DataFrames only represent the four
+    # analytical datasets that publication must persist.
+    fact_sales_df = candidate_df
+    dim_product_df = (
+        resolved_df
+        .select(
+            F.lit('P001').alias('product_id'),
+            F.lit('Test Product').alias('product_name'),
+            F.lit('Test').alias('category'),
+            F.lit(True).alias('active'),
+        )
+        .limit(1)
+    )
+    dim_store_df = (
+        resolved_df
+        .select(
+            F.lit('S001').alias('store_id'),
+            F.lit('Test Store').alias('store_name'),
+            F.lit('Toronto').alias('city'),
+            F.lit('ON').alias('province'),
+            F.lit(True).alias('active'),
+        )
+        .limit(1)
+    )
+    dim_date_df = (
+        resolved_df
+        .select(
+            F.lit(
+                date(2026, 10, 1)
+            ).alias('sale_date'),
+        )
+        .limit(1)
+    )
+
     return SalesPipelineResult(
         resolved_state_df=resolved_df,
         candidate_df=candidate_df,
+
+        fact_sales_df=fact_sales_df,
+        dim_product_df=dim_product_df,
+        dim_store_df=dim_store_df,
+        dim_date_df=dim_date_df,
+
         validation_quarantine_df=empty_df,
         ambiguous_state_df=empty_df,
         products_quarantine_df=empty_df,
@@ -364,3 +408,70 @@ def test_failed_publication_preserves_previous_current_run(
         current_df.first()['unit_price']
         == Decimal('10.00')
     )
+
+
+def test_publication_persists_analytical_model(
+    spark,
+    tmp_path,
+):
+    output_root = tmp_path / 'output'
+    quarantine_root = tmp_path / 'quarantine'
+
+    publish_sales_run(
+        result=_result(spark),
+        output_root=output_root,
+        quarantine_root=quarantine_root,
+        run_id='run-001',
+    )
+
+    analytical_root = (
+        output_root
+        / 'runs'
+        / 'run-001'
+        / 'analytical'
+    )
+
+    assert (
+        analytical_root
+        / 'fact_sales'
+    ).exists()
+
+    assert (
+        analytical_root
+        / 'dim_product'
+    ).exists()
+
+    assert (
+        analytical_root
+        / 'dim_store'
+    ).exists()
+
+    assert (
+        analytical_root
+        / 'dim_date'
+    ).exists()
+
+    fact_df = load_current_analytical_table(
+        spark,
+        output_root,
+        'fact_sales',
+    )
+
+    assert fact_df.count() == 1
+
+
+def test_analytical_loader_rejects_unknown_table(
+    spark,
+    tmp_path,
+):
+    output_root = tmp_path / 'output'
+
+    with pytest.raises(
+        PublicationError,
+        match='Unknown analytical table',
+    ):
+        load_current_analytical_table(
+            spark,
+            output_root,
+            'fact_customers',
+        )
