@@ -10,6 +10,12 @@ from p001_retail_sales.pipeline import (
     ReferenceDataError,
     run_sales_pipeline,
 )
+from p001_retail_sales.modeling import (
+    DIM_DATE_COLUMNS,
+    DIM_PRODUCT_COLUMNS,
+    DIM_STORE_COLUMNS,
+    FACT_SALES_COLUMNS,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -370,3 +376,26 @@ def test_pipeline_quarantines_invalid_reference_and_dependent_sale(
         'UNKNOWN_PRODUCT_ID'
         in sales_row['rejection_reasons']
     )
+
+
+def test_pipeline_builds_analytical_model(spark):
+    result = _run_fixture_batch(
+        spark,
+        'sales_2026-10-01.csv',
+    )
+
+    assert result.fact_sales_df.columns == FACT_SALES_COLUMNS
+    assert result.dim_product_df.columns == DIM_PRODUCT_COLUMNS
+    assert result.dim_store_df.columns == DIM_STORE_COLUMNS
+    assert result.dim_date_df.columns == DIM_DATE_COLUMNS
+
+    # Day 1 produces three trusted current sales lines.
+    assert result.fact_sales_df.count() == 3
+
+    # All valid canonical references are represented,
+    # including inactive but still valid historical references.
+    assert result.dim_product_df.count() == 10
+    assert result.dim_store_df.count() == 5
+
+    # All Day 1 trusted facts have the same business date.
+    assert result.dim_date_df.count() == 1

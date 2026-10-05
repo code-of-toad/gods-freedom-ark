@@ -24,6 +24,12 @@ from p001_retail_sales.validation import (
 from p001_retail_sales.transformations import add_sales_metrics
 from p001_retail_sales.incremental import merge_sales_current_state
 from p001_retail_sales.reconciliation import assert_sales_reconciliation
+from p001_retail_sales.modeling import (
+    build_dim_date,
+    build_dim_product,
+    build_dim_store,
+    build_fact_sales,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,9 @@ class SalesPipelineResult:
     candidate_df:
         Reconciled analytical state eligible for publication.
 
+    fact_sales_df, dim_product_df, dim_store_df, dim_date_df:
+        Published analytical model.
+
     validation_quarantine_df
         Incoming sales rows that failed validation.
 
@@ -46,8 +55,16 @@ class SalesPipelineResult:
     products_quarantine_df, stores_quarantine_df:
         Invalid reference-data rows retained for investigation.
     """
+    # Incremental processing state.
     resolved_state_df: DataFrame
+    # Reconciled transformed state.
     candidate_df: DataFrame
+    # Published analytical model.
+    fact_sales_df: DataFrame
+    dim_product_df: DataFrame
+    dim_store_df: DataFrame
+    dim_date_df: DataFrame
+    # Exception state.
     validation_quarantine_df: DataFrame
     ambiguous_state_df: DataFrame
     products_quarantine_df: DataFrame
@@ -237,11 +254,22 @@ def run_sales_pipeline(
         ambiguous_df=next_ambiguous_state_df,
     )
 
+    fact_sales_df = build_fact_sales(candidate_df)
+    dim_product_df = build_dim_product(products_accepted_df)
+    dim_store_df = build_dim_store(stores_accepted_df)
+    dim_date_df = build_dim_date(fact_sales_df)
+
     # Nothing has been physically published yet.
     # Reaching this point means candidate_df is eligible for publication.
     return SalesPipelineResult(
         resolved_state_df=resolved_state_df,
         candidate_df=candidate_df,
+
+        fact_sales_df=fact_sales_df,
+        dim_product_df=dim_product_df,
+        dim_store_df=dim_store_df,
+        dim_date_df=dim_date_df,
+
         validation_quarantine_df=validation_quarantine_df,
         ambiguous_state_df=next_ambiguous_state_df,
         products_quarantine_df=products_quarantine_df,
