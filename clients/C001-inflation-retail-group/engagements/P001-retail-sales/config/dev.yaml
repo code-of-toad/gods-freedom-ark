@@ -4,12 +4,28 @@
 # Define environmental identity.
 environment: dev
 
+# Run Spark locally during development.
+spark:
+  master: local[*]
+
 # Development logging should expose detailed diagnostic information.
 logging:
   level: DEBUG
 
 # Keep development data ISOLATED from test & production data.
 paths:
-  input: ./data/test/input
+  input: ./data/dev/input
   output: ./data/dev/output
   quarantine: ./data/dev/quarantine
+
+# data/test/input/
+#     committed deterministic pytest fixtures
+# 
+# data/dev/input/
+#     ignored local development inputs
+# 
+# data/dev/output/
+#     ignored local generated state
+# 
+# data/dev/quarantine/
+#     ignored local exception state

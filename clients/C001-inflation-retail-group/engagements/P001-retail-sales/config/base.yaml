@@ -13,6 +13,10 @@ environment_family: p001-retail-sales
 pipeline:
   mode: incremental
 
+# Specify shared Spark behaviour.
+spark:
+  app_name: p001-retail-sales
+
 # Specify shared logging behaviour.
 logging:
   format: json

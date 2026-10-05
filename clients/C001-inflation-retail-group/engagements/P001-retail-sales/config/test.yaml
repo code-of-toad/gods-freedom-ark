@@ -4,6 +4,10 @@
 # Define environmental identity.
 environment: test
 
+# Run Spark locally w/ 2 local worker threads during testing.
+spark:
+  master: local[2]
+
 # Automated tests should indicate meaningful failures w/o excessive debug noise.
 logging:
   level: WARNING
