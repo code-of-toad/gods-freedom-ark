@@ -3,7 +3,7 @@
 **Client:** Inflation Retail Group (`C001`)  
 **Engagement ID:** `P001`  
 **Status:** Active  
-**Implementation stage:** Local core pipeline and safe Parquet publication implemented; analytics/performance/cloud work remains
+**Implementation stage:** Local incremental pipeline, safe Parquet publication, current-state star schema, and analytical SQL implemented; performance/cloud work remains
 
 ## Purpose
 
@@ -305,7 +305,21 @@ config/
 └── prod.yaml
 ```
 
-The current local batch-job API receives paths and `run_id` explicitly. Automatic configuration loading/merging is not yet wired into the runtime.
+Runtime configuration is now loaded through:
+
+```text
+base.yaml
+    +
+<environment>.yaml
+    =
+effective configuration
+```
+
+`config.py` performs the merge and resolves engagement-relative paths. The package can be executed locally through:
+
+```powershell
+python -m p001_retail_sales --env dev --sales-file <file.csv> --run-id <run_id>
+```
 
 Production cloud locations and the BigQuery dataset remain intentionally unresolved.
 
@@ -315,6 +329,7 @@ Production cloud locations and the BigQuery dataset remain intentionally unresol
 P001-retail-sales/
 ├── README.md
 ├── ARCHITECTURE.md
+├── ANALYTICAL_MODEL.md
 ├── pyproject.toml
 ├── config/
 │   ├── base.yaml
@@ -327,6 +342,8 @@ P001-retail-sales/
 ├── src/
 │   └── p001_retail_sales/
 │       ├── __init__.py
+│       ├── __main__.py
+│       ├── config.py
 │       ├── schemas.py
 │       ├── ingestion.py
 │       ├── standardization.py
@@ -335,6 +352,8 @@ P001-retail-sales/
 │       ├── incremental.py
 │       ├── transformations.py
 │       ├── reconciliation.py
+│       ├── modeling.py
+│       ├── analytics.py
 │       ├── pipeline.py
 │       ├── publication.py
 │       └── job.py
@@ -342,6 +361,7 @@ P001-retail-sales/
 │   └── analytics.sql
 └── tests/
     ├── conftest.py
+    ├── test_config.py
     ├── test_ingestion.py
     ├── test_standardization.py
     ├── test_validation.py
@@ -349,6 +369,8 @@ P001-retail-sales/
     ├── test_transformations.py
     ├── test_incremental.py
     ├── test_reconciliation.py
+    ├── test_modeling.py
+    ├── test_analytics.py
     ├── test_pipeline.py
     ├── test_publication.py
     └── test_job.py
@@ -360,21 +382,51 @@ Generated `dev`, `prod`, test-output, quarantine, staging, and Parquet data are 
 
 The following are intentionally still ahead:
 
-- a command-line or scheduled runner;
-- automatic `base.yaml + <environment>.yaml` config resolution;
-- curated product/store attribute enrichment;
-- final dimensional/warehouse schema;
-- analytical SQL beyond the placeholder;
+- scheduled/cloud orchestration;
 - deliberate partitioning and Spark performance experiments;
 - large-scale benchmark data;
 - GCS persistence;
 - Dataproc execution;
 - BigQuery publication;
 - cloud observability; and
-- orchestration.
+- production deployment automation.
 
-These should be added only after the local correctness and persistence foundation remains stable.
+The current local implementation already includes:
+
+- runtime config loading;
+- CLI execution;
+- incremental state;
+- quarantine and reconciliation;
+- safe Parquet publication;
+- a current-state star schema;
+- analytical model publication; and
+- named analytical SQL queries executed through Spark SQL.
+
+## Analytical SQL
+
+The local analytical layer now exposes named queries for:
+
+```text
+daily_sales
+store_performance
+product_performance
+category_performance
+province_performance
+return_activity
+order_value_summary
+```
+
+These queries operate on the published:
+
+```text
+fact_sales
+dim_product
+dim_store
+dim_date
+```
+
+tables and have been exercised against the `run-004` local snapshot.
 
 ## Next Step
 
-Run the persistent job against the real local `data/dev/` paths, inspect the produced Parquet snapshots and quarantine outputs, then proceed into analytical modeling and performance/scalability work before mapping the proven design onto GCP.
+Move into Spark execution/performance work: establish a local baseline, generate realistic larger batches, inspect partitioning/shuffle/join behavior, and benchmark the pipeline before mapping the proven design onto GCP.

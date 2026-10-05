@@ -2,7 +2,7 @@
 
 **Client:** Inflation Retail Group (`C001`)  
 **Engagement:** `P001-retail-sales`  
-**Model status:** Initial local analytical model design  
+**Model status:** Implemented and locally verified  
 **Model type:** Current-state star schema
 
 ## Purpose
@@ -356,31 +356,70 @@ The following are intentionally not part of the first model:
 
 These should be introduced only when a real requirement makes them useful.
 
-## Implementation Boundary
+## Implementation Status
 
-The next implementation step should create analytical-model functions that build:
-
-```text
-fact_sales
-dim_product
-dim_store
-dim_date
-```
-
-from already validated/resolved P001 DataFrames.
-
-The model-building code should not duplicate validation or version-resolution logic.
-
-Recommended module:
+The analytical model is implemented in:
 
 ```text
 src/p001_retail_sales/modeling.py
 ```
 
-Recommended tests:
+with automated coverage in:
 
 ```text
 tests/test_modeling.py
+tests/test_pipeline.py
+tests/test_publication.py
+tests/test_job.py
 ```
 
-After the model functions are proven independently, P001 can decide how to persist these analytical datasets locally and later map them to BigQuery.
+The four datasets are published inside each successful run snapshot under:
+
+```text
+analytical/
+├── fact_sales/
+├── dim_product/
+├── dim_store/
+└── dim_date/
+```
+
+The `run-004` local snapshot was manually verified with:
+
+```text
+fact_sales:   8 rows
+dim_product: 10 rows
+dim_store:    5 rows
+dim_date:     4 rows
+```
+
+and zero missing product, store, or date dimension references from `fact_sales`.
+
+## Analytical SQL
+
+Business-facing analytical SQL is defined in:
+
+```text
+sql/analytics.sql
+```
+
+and executed locally through:
+
+```text
+src/p001_retail_sales/analytics.py
+```
+
+The current named queries are:
+
+```text
+daily_sales
+store_performance
+product_performance
+category_performance
+province_performance
+return_activity
+order_value_summary
+```
+
+These queries were exercised successfully against the published `run-004` star schema.
+
+The local analytical-model milestone is therefore complete. The next engineering phase is Spark execution/performance and realistic-scale benchmarking before the proven model is mapped to BigQuery.

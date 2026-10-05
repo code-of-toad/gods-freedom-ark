@@ -3,7 +3,7 @@
 **Client:** Inflation Retail Group (`C001`)  
 **Engagement:** `P001-retail-sales`  
 **Status:** Active implementation  
-**Current stage:** Local incremental pipeline, reconciliation, and safe Parquet publication implemented
+**Current stage:** Local incremental pipeline, safe Parquet publication, current-state star schema, and analytical SQL implemented
 
 ## Architecture Goal
 
@@ -632,7 +632,7 @@ Cloud implementation should use storage/warehouse mechanisms appropriate to GCS 
 
 BigQuery remains the intended analytical warehouse target.
 
-The expected minimum model remains:
+The local analytical model is now implemented as:
 
 ```text
 fact_sales
@@ -641,11 +641,21 @@ dim_store
 dim_date
 ```
 
-This model is **not yet implemented**.
+The model uses natural keys and current-state product/store dimensions. Surrogate keys and slowly changing dimensions remain intentionally deferred until a concrete historical-dimension requirement exists.
 
-Reference-data enrichment, final curated schema selection, dimensional-model design, and analytical SQL remain upcoming work.
+The same published local tables are queried through `sql/analytics.sql`, which currently provides named queries for:
 
-Do not introduce surrogate keys or slowly changing dimensions without a concrete requirement.
+```text
+daily_sales
+store_performance
+product_performance
+category_performance
+province_performance
+return_activity
+order_value_summary
+```
+
+The next warehouse step is not to redesign the model, but to map this proven local shape and its semantics to BigQuery.
 
 ## Partitioning and Performance
 
@@ -696,36 +706,53 @@ Completed locally:
 ```text
 1. Package/test scaffold
 2. dev/test/prod configuration scaffold
-3. Explicit schemas
-4. Deterministic seed fixtures
-5. Ingestion
-6. Standardization
-7. Validation and quarantine
-8. Duplicate/version resolution
-9. Persistent ambiguity handling
-10. Business metrics
-11. Incremental/idempotent state handling
-12. Reconciliation
-13. End-to-end in-memory pipeline
-14. Safe local Parquet publication
-15. Persistent batch-job coordination
+3. Runtime config loading and CLI execution
+4. Explicit schemas
+5. Deterministic seed fixtures
+6. Ingestion
+7. Standardization
+8. Validation and quarantine
+9. Duplicate/version resolution
+10. Persistent ambiguity handling
+11. Business metrics
+12. Incremental/idempotent state handling
+13. Reconciliation
+14. End-to-end in-memory pipeline
+15. Safe local Parquet publication
+16. Persistent batch-job coordination
+17. Current-state analytical model
+18. Analytical Parquet publication
+19. Named Spark SQL analytics
+20. Real CLI execution and run-004 analytical verification
+```
+
+Verified locally on `run-004`:
+
+```text
+fact_sales rows:   8
+dim_product rows: 10
+dim_store rows:    5
+dim_date rows:     4
+
+missing product references: 0
+missing store references:   0
+missing date references:    0
 ```
 
 Next:
 
 ```text
-16. Exercise the job against real data/dev paths and inspect outputs
-17. Finalize curated analytical shape / reference enrichment
-18. Add analytical SQL
-19. Validate Spark execution and performance behavior
-20. Add realistic benchmark data
-21. Map proven persistence/execution design to GCP
-22. Add BigQuery analytical publication/model
+21. Establish Spark execution/performance baseline
+22. Add realistic benchmark data
+23. Measure partitioning, shuffle, join, skew, and small-file behavior
+24. Map proven persistence/execution design to GCP
+25. Add BigQuery analytical publication/model
+26. Add cloud observability and orchestration
 ```
 
 ## Definition of Current Local Milestone
 
-The local core milestone is satisfied when P001 can:
+The local correctness-and-analytics milestone is satisfied when P001 can:
 
 - validate and quarantine bad data;
 - maintain deterministic current state across deliveries;
@@ -734,7 +761,12 @@ The local core milestone is satisfied when P001 can:
 - derive reproducible sales metrics;
 - reconcile a candidate before publication;
 - persist the next state to Parquet;
-- keep immutable run snapshots; and
-- preserve the last known-good published state if a later run fails.
+- keep immutable run snapshots;
+- preserve the last known-good published state if a later run fails;
+- publish `fact_sales`, `dim_product`, `dim_store`, and `dim_date`;
+- preserve fact-to-dimension referential integrity; and
+- execute repeatable business-facing analytical SQL over the published model.
 
-Those behaviors are now represented in the implementation and automated test suite.
+Those behaviors are now represented in the implementation, automated test suite, and the manually verified `run-004` local snapshot.
+
+The next local milestone is performance/scalability evidence rather than additional correctness features.
