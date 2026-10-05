@@ -4,16 +4,23 @@
 # Define environmental identity.
 environment: prod
 
+# Production executes on Google Cloud.
+cloud:
+  provider: gcp
+  project_id: null
+  region: null
+
 # Production logging should be informative w/o debug-level verbosity.
 logging:
   level: INFO
 
-# Infrastructure values are currently unresolved.
+# GCS locations will be populated after cloud infrastructure is provisioned.
 paths:
   input: null
   output: null
   quarantine: null
 
-# Production will eventually load analytical data into BigQuery.
+# Production analytical data will be published to BigQuery.
 warehouse:
+  provider: bigquery
   dataset: null
