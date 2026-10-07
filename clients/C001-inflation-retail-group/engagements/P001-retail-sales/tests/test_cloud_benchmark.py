@@ -1,6 +1,7 @@
 """
 Tests for distributed cloud benchmark generation.
 """
+from datetime import date
 
 from p001_retail_sales.cloud_benchmark import (
     CloudBenchmarkSpec,
@@ -78,12 +79,34 @@ def test_cloud_benchmark_generation_is_deterministic(
         spec=spec,
     )
 
-    assert (
-        first_df.exceptAll(second_df).count()
-        == 0
-    )
+    assert first_df.exceptAll(second_df).count() == 0
+    assert second_df.exceptAll(first_df).count() == 0
 
-    assert (
-        second_df.exceptAll(first_df).count()
-        == 0
-    )
+
+def test_cloud_benchmark_supports_nonoverlapping_batches(
+    spark,
+):
+    day_one = build_sales_dataframe(
+        spark=spark,
+        spec=CloudBenchmarkSpec(
+            row_count=2,
+            partitions=1,
+            row_offset=0,
+            base_date=date(2026, 1, 1),
+        ),
+    ).orderBy('order_id').collect()
+
+    day_two = build_sales_dataframe(
+        spark=spark,
+        spec=CloudBenchmarkSpec(
+            row_count=2,
+            partitions=1,
+            row_offset=2,
+            base_date=date(2026, 2, 1),
+        ),
+    ).orderBy('order_id').collect()
+
+    assert day_one[0]['order_id'] == 'O000000000001'
+    assert day_two[0]['order_id'] == 'O000000000003'
+    assert day_one[0]['sale_date'] == '2026-01-01'
+    assert day_two[0]['sale_date'] == '2026-02-01'
