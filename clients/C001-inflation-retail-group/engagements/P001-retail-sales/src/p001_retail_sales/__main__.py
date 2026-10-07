@@ -97,8 +97,6 @@ def _create_spark(
         'master'
     )
 
-    # Local environments explicitly configure a master.
-    # Cloud environments receive one from their execution platform.
     if master:
         builder = builder.master(
             master
@@ -188,7 +186,7 @@ def main(
     )
 
     try:
-        result = run_sales_batch_job(
+        run_sales_batch_job(
             spark=spark,
             sales_path=sales_path,
             products_path=products_path,
@@ -207,48 +205,18 @@ def main(
         print(
             'P001 batch completed successfully.'
         )
-
         print(
             f'environment: {args.environment}'
         )
-
         print(
             f'Run ID: {args.run_id}'
         )
-
         print(
             f'CURRENT: {current_run_id}'
         )
-
-        print(
-            'Trusted rows: '
-            f'{result.candidate_df.count()}'
-        )
-
-        print(
-            'Validation quarantine rows: '
-            f'{result.validation_quarantine_df.count()}'
-        )
-
-        print(
-            'Ambiguous current-state rows: '
-            f'{result.ambiguous_state_df.count()}'
-        )
-
-        print(
-            'Product quarantine rows: '
-            f'{result.products_quarantine_df.count()}'
-        )
-
-        print(
-            'Store quarantine rows: '
-            f'{result.stores_quarantine_df.count()}'
-        )
-
         print(
             f'Output root: {output_root}'
         )
-
         print(
             f'Quarantine root: {quarantine_root}'
         )
