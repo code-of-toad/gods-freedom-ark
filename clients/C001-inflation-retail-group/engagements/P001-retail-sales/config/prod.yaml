@@ -1,26 +1,21 @@
 # Production-specific configuration.
 
-
-# Define environmental identity.
 environment: prod
 
-# Production executes on Google Cloud.
 cloud:
   provider: gcp
-  project_id: null
-  region: null
+  project_id: gfa-p001-99999
+  region: northamerica-northeast2
 
-# Production logging should be informative w/o debug-level verbosity.
 logging:
   level: INFO
 
-# GCS locations will be populated after cloud infrastructure is provisioned.
 paths:
-  input: null
-  output: null
-  quarantine: null
+  input: gs://gfa-p001-99999-data/benchmark/input
+  output: gs://gfa-p001-99999-data/benchmark/output
+  quarantine: gs://gfa-p001-99999-data/benchmark/quarantine
 
-# Production analytical data will be published to BigQuery.
+# BigQuery publication is a later checkpoint.
 warehouse:
   provider: bigquery
   dataset: null
