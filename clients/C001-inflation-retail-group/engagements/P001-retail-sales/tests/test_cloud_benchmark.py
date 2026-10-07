@@ -1,0 +1,89 @@
+"""
+Tests for distributed cloud benchmark generation.
+"""
+
+from p001_retail_sales.cloud_benchmark import (
+    CloudBenchmarkSpec,
+    build_sales_dataframe,
+)
+
+
+def test_cloud_benchmark_generator_produces_expected_rows(
+    spark,
+):
+    spec = CloudBenchmarkSpec(
+        row_count=40,
+        partitions=2,
+        product_count=10,
+        store_count=5,
+        sale_day_count=3,
+        return_every=20,
+    )
+
+    df = build_sales_dataframe(
+        spark=spark,
+        spec=spec,
+    )
+
+    assert df.count() == 40
+
+    rows = {
+        row['order_id']: row
+        for row in (
+            df
+            .where(
+                df.order_id.isin(
+                    'O000000000001',
+                    'O000000000020',
+                )
+            )
+            .collect()
+        )
+    }
+
+    first = rows['O000000000001']
+
+    assert first['line_id'] == 1
+    assert first['sale_date'] == '2026-01-01'
+    assert first['store_id'] == 'S0001'
+    assert first['product_id'] == 'P000001'
+    assert first['quantity'] == 1
+    assert first['order_status'] == 'COMPLETED'
+    assert first['updated_at'] == '2026-01-01T00:00:00'
+
+    twentieth = rows['O000000000020']
+
+    assert twentieth['quantity'] == -1
+    assert twentieth['order_status'] == 'RETURNED'
+    assert str(twentieth['discount_amount']) == '0.00'
+
+
+def test_cloud_benchmark_generation_is_deterministic(
+    spark,
+):
+    spec = CloudBenchmarkSpec(
+        row_count=100,
+        partitions=2,
+        product_count=10,
+        store_count=5,
+    )
+
+    first_df = build_sales_dataframe(
+        spark=spark,
+        spec=spec,
+    )
+
+    second_df = build_sales_dataframe(
+        spark=spark,
+        spec=spec,
+    )
+
+    assert (
+        first_df.exceptAll(second_df).count()
+        == 0
+    )
+
+    assert (
+        second_df.exceptAll(first_df).count()
+        == 0
+    )
